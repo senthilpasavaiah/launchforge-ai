@@ -3,31 +3,31 @@
     {
       "company": "Noor Tayba General Trading LLC",
       "country": "United Arab Emirates",
-      "role": "Buyer / Importer",
+      "role": "Buyer / Importer lead",
       "commodities": "Sunflower oil; refined sunflower oil",
-      "verification": "Shipment-history lead; current requirement not yet confirmed",
-      "status": "Research"
+      "verification": "Shipment-history lead; current requirement/contact not yet confirmed",
+      "status": "Research — verify current need"
     },
     {
       "company": "Rulexx Petroleum FZE",
       "country": "United Arab Emirates",
-      "role": "Buyer / Importer",
-      "commodities": "Soya oil; refined sunflower/soya oil",
-      "verification": "Shipment-history lead; current requirement not yet confirmed",
-      "status": "Research"
+      "role": "Supplier / Manufacturer lead",
+      "commodities": "Lubricants / petroleum products",
+      "verification": "Official business contact used; edible-oil buyer classification removed pending evidence",
+      "status": "Outreach sent — awaiting reply"
     },
     {
       "company": "Emirates Refining Company Limited",
       "country": "United Arab Emirates",
-      "role": "Buyer / Importer / Refiner",
-      "commodities": "Crude soya oil; sunflower oil",
-      "verification": "Shipment-history lead; current requirement not yet confirmed",
-      "status": "Research"
+      "role": "Refinery / supplier lead",
+      "commodities": "Base oils; lubricant additives / chemicals",
+      "verification": "Edible-oil buyer classification removed pending evidence",
+      "status": "Research — verify current trade program"
     },
     {
       "company": "Iris International",
       "country": "United Arab Emirates",
-      "role": "Seller / Supplier",
+      "role": "Seller / Supplier lead",
       "commodities": "Palm olein; coconut oil; soybean oil; sunflower oil",
       "verification": "Official-site lead; listed email bounced (550)",
       "status": "Contact invalid — reverify"
@@ -45,20 +45,29 @@
       "priority": "High",
       "status": "Email failed",
       "next": "Find and verify alternative business contact before resend"
+    },
+    {
+      "company": "Rulexx Petroleum FZE",
+      "role": "Supplier / Manufacturer lead",
+      "commodity": "Lubricants / petroleum products",
+      "due": "2026-10-04",
+      "priority": "Normal",
+      "status": "Email sent",
+      "next": "Await delivery/reply; collect current export program and terms"
     }
   ],
   "activity": [
     {
       "date": "2026-10-04",
       "sourcesFound": 4,
-      "buyerLeads": 3,
-      "sellerLeads": 1,
-      "emailsSent": 1,
+      "buyerLeads": 1,
+      "sellerLeads": 3,
+      "emailsSent": 2,
       "delivered": 0,
       "failed": 1,
       "replies": 0,
       "matches": 0
     }
   ],
-  "updatedAt": "2026-10-04T08:03:04Z"
+  "updatedAt": "2026-10-04T08:23:54Z"
 }
