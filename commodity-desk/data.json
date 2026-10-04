@@ -33,8 +33,94 @@
       "status": "Contact invalid — reverify"
     }
   ],
-  "buyers": [],
-  "sellers": [],
+  "buyers": [
+    {
+      "buyer": "Muhammad Amir Iqbal (company not disclosed)",
+      "country": "United Arab Emirates",
+      "commodity": "Refined Sunflower Oil",
+      "spec": "Cooking oil; HS 151790",
+      "quantity": "1 x 20ft container",
+      "destination": "United Arab Emirates",
+      "incoterm": "CIF",
+      "payment": "L/C",
+      "source": "Go4WorldBusiness · 2026-10-01",
+      "status": "Platform-verified RFQ · identity pending"
+    },
+    {
+      "buyer": "Shahzad Ali (company not disclosed)",
+      "country": "United Arab Emirates",
+      "commodity": "Refined Sunflower Oil",
+      "spec": "Refined",
+      "quantity": "1 x 20ft container",
+      "destination": "Jebel Ali, UAE",
+      "incoterm": "CIF",
+      "payment": "LC",
+      "source": "Go4WorldBusiness · 2026-09-22",
+      "status": "Platform-verified RFQ · identity pending"
+    },
+    {
+      "buyer": "Mohammad Faisal (company not disclosed)",
+      "country": "United Arab Emirates",
+      "commodity": "Crude Sunflower Oil",
+      "spec": "Industrial use; HS 15121110",
+      "quantity": "1,000 MT",
+      "destination": "United Arab Emirates",
+      "incoterm": "CIF",
+      "payment": "L/C",
+      "source": "Go4WorldBusiness · 2026-07-20",
+      "status": "Platform-verified RFQ · identity pending"
+    },
+    {
+      "buyer": "Mohamed Bahar (company not disclosed)",
+      "country": "United Arab Emirates",
+      "commodity": "Refined Palm Oil / Refined Sunflower Oil",
+      "spec": "RBD CP8; source has detailed parameters",
+      "quantity": "2,000 MT spot",
+      "destination": "United Arab Emirates",
+      "incoterm": "CIF",
+      "payment": "L/C",
+      "source": "Go4WorldBusiness · 2026-07-16",
+      "status": "Platform-verified RFQ · identity pending"
+    }
+  ],
+  "sellers": [
+    {
+      "seller": "Al Ealami Commodity Trading LLC-FZ",
+      "country": "United Arab Emirates",
+      "commodity": "Refined Sunflower Oil",
+      "spec": "Premium refined; export quality; Grade A",
+      "quantity": "MOQ 20 MT",
+      "price": "USD 950–1,350/MT FOB (listing)",
+      "origin": "",
+      "incoterm": "FOB",
+      "validity": "Reconfirm before matching",
+      "status": "Supplier listing · direct-seller verification pending"
+    },
+    {
+      "seller": "City Lite General Trading L.L.C.",
+      "country": "United Arab Emirates",
+      "commodity": "Refined Sunflower Oil",
+      "spec": "RBD refined; food grade",
+      "quantity": "MOQ 23 MT",
+      "price": "USD 780–1,100/MT CIF (listing)",
+      "origin": "",
+      "incoterm": "CIF",
+      "validity": "Reconfirm before matching",
+      "status": "Supplier listing · direct-seller verification pending"
+    },
+    {
+      "seller": "Sabbita Impex General Trading Co. L.L.C.",
+      "country": "United Arab Emirates",
+      "commodity": "Sunflower Oil",
+      "spec": "Export grade",
+      "quantity": "MOQ not specified",
+      "price": "USD 300–400/MT EXW (listing)",
+      "origin": "India",
+      "incoterm": "EXW",
+      "validity": "Reconfirm before matching",
+      "status": "Supplier listing · direct-seller verification pending"
+    }
+  ],
   "matches": [],
   "followups": [
     {
@@ -59,9 +145,9 @@
   "activity": [
     {
       "date": "2026-10-04",
-      "sourcesFound": 4,
-      "buyerLeads": 1,
-      "sellerLeads": 3,
+      "sourcesFound": 11,
+      "buyerLeads": 5,
+      "sellerLeads": 6,
       "emailsSent": 2,
       "delivered": 0,
       "failed": 1,
@@ -69,5 +155,5 @@
       "matches": 0
     }
   ],
-  "updatedAt": "2026-10-04T08:23:54Z"
+  "updatedAt": "2026-10-04T08:57:00Z"
 }
