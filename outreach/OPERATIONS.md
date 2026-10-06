@@ -1,5 +1,29 @@
 # ForgeLaunch private Outreach
 
+## Current configuration: your existing Gmail
+
+Gmail is now the default (`EMAIL_PROVIDER=gmail`). You do **not** need a purchased domain, Mailgun account, or SPF/DKIM/DMARC changes to use your existing `@gmail.com` mailbox. The Mailgun-specific section below is retained only for an optional future domain-email configuration.
+
+The application connects directly to Google through OAuth; it cannot reuse ChatGPT Gmail connector permissions. Only the signed-in Senthil owner can connect or disconnect the mailbox. Google receives a state-bound, single-use authorization request with PKCE. The callback is tied to the initiating owner session and browser, and checks the actual Gmail account against `GMAIL_ALLOWED_EMAIL` before accepting credentials. Read-only mailbox and send permissions are requested; deleting emails and modifying Gmail labels are not requested.
+
+### Gmail activation
+
+1. Sign into your own [Google Cloud console](https://console.cloud.google.com/), create/select the ForgeLaunch project, and enable **Gmail API**. Configure Google Auth Platform consent, adding the `gmail.send` and `gmail.readonly` scopes. For an external app in Testing, explicitly add your Gmail address as a test user.
+2. Create an OAuth client of type **Web application**. Add the exact authorized redirect URI `PUBLIC_ORIGIN/auth/gmail/callback`. The actual hosting provider's HTTPS address is sufficient; it does not need to be a purchased domain. For local development only, use `http://127.0.0.1:8080/auth/gmail/callback` and the same origin configured on the loopback server.
+3. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GMAIL_ALLOWED_EMAIL` (your exact mailbox), `PUBLIC_ORIGIN`, `UNSUBSCRIBE_SECRET` and `AI_SERVICE_TOKEN` in the server's private environment. Set `EMAIL_PROVIDER=gmail`. Domain verification and Mailgun flags do not apply to Gmail. Keep `EMAIL_ENABLED=false` while testing.
+4. Deploy the web and worker services using the persistent HTTPS hosting instructions below, create Senthil's owner login, then sign in → Email setup → **Connect Gmail**. Select the configured Google account and approve permissions on Google's page. No Gmail password is entered into ForgeLaunch. Until client credentials exist, the Connect button is disabled and the app explains the pending setup; no fake authorization link is provided.
+5. Send an owner-approved message to your own consenting test mailbox, reply, and use **Sync replies**. After live verification, set `EMAIL_ENABLED=true`. The worker syncs replies independently of the Gulf sending window, including Friday.
+
+Google OAuth apps in **Testing** normally receive refresh tokens expiring after seven days for these scopes. Do not promise continuous daily operation with Testing credentials. Configure the appropriate published/personal-use consent status and satisfy Google's current verification requirements before long-term use. Tokens can also be revoked or invalidated by Google/user policy. The app automatically refreshes access tokens, displays `reconnect_required` when access is revoked, and preserves the queue for the owner to reconnect. A one-time grant does not guarantee permanent access.
+
+The connected refresh/access tokens are stored only in the server database and never returned by any UI/API. Run the host with an encrypted disk and restrict the persistent volume and backups to the application/host owner. Linux files are created with an owner-only umask. The database now contains Google credentials as well as message data; restrict and encrypt backups accordingly. Do not publish/download it as a build artifact. **Disconnect Gmail** removes the stored credentials and attempts Google revocation; if remote revocation fails, the UI/API advises removing the app in Google Account permissions.
+
+Reply synchronization checks only stored ForgeLaunch outreach threads and imports only mail from the corresponding lead. Unrelated conversations are not copied into the app, although Google's read-only scope technically allows mailbox reading. Gmail permanent delivery-status emails are accepted as bounces only when the original ForgeLaunch Message-ID and recipient match; unrelated notifications are ignored. Gmail does not supply Mailgun-style delivered/read/complaint webhooks. Sending means Google accepted the message, not that a client received or read it. Automated opt-outs and matched permanent bounces still suppress further sends.
+
+Unknown send outcomes are reconciled through Gmail Sent using a stable RFC Message-ID; no blind resend occurs. The worker polls tracked threads in batches, periodically wrapping through them. Gmail sending/API quotas still apply; the app's conservative daily cap does not override Google's limits. Research/approval, suppression, client isolation and commercial-term gates remain enforced.
+
+References: [Google OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [Gmail send API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send).
+
 The existing repository is a static GitHub Pages site. Public pages and assets are preserved. This addition runs a private WSGI API, SQLite database on a persistent disk, and a separate durable email worker. It cannot run on GitHub Pages. No real email has been sent, no production credentials are included, and no prospect data has been imported from the public business files.
 
 ## Deployment

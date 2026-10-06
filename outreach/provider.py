@@ -26,6 +26,15 @@ class EmailProvider(Protocol):
     def send(self, message: dict, lead: dict) -> str: ...
 
 
+def selected(db):
+    if os.environ.get('EMAIL_PROVIDER', 'gmail') == 'gmail':
+        from outreach.gmail import Gmail
+        return Gmail(db)
+    if os.environ.get('EMAIL_PROVIDER') == 'mailgun':
+        return Mailgun()
+    raise Permanent('Unknown email provider.')
+
+
 def unsubscribe_token(ident):
     secret = os.environ.get('UNSUBSCRIBE_SECRET', '')
     if len(secret) < 32:

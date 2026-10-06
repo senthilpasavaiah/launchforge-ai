@@ -4,7 +4,7 @@ import json
 import os
 import time
 from outreach import core
-from outreach.provider import Mailgun
+from outreach.provider import selected
 
 
 def main():
@@ -27,7 +27,13 @@ def main():
     elif args.command.startswith('worker'):
         while True:
             try:
-                print(json.dumps(core.worker(db,Mailgun())),flush=True)
+                provider = selected(db)
+                if hasattr(provider, 'sync'):
+                    try:
+                        print(json.dumps({'mailbox_sync':provider.sync()}),flush=True)
+                    except Exception as exc:
+                        print(json.dumps({'mailbox_sync_error':type(exc).__name__}),flush=True)
+                print(json.dumps(core.worker(db,provider)),flush=True)
             except Exception as exc:
                 print(json.dumps({'worker_error':type(exc).__name__}),flush=True)
             if args.command=='worker-once':

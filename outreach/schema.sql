@@ -15,3 +15,7 @@ INSERT OR IGNORE INTO settings VALUES('paused','0');
 CREATE INDEX IF NOT EXISTS queue_due ON messages(state,retry_at,scheduled);
 CREATE TABLE IF NOT EXISTS webhook_tokens(token TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS worker_attempts(id INTEGER PRIMARY KEY, message_id INTEGER REFERENCES messages(id), created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS gmail_oauth_states(state TEXT PRIMARY KEY, session TEXT NOT NULL, verifier TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS gmail_connection(id INTEGER PRIMARY KEY CHECK(id=1), email TEXT NOT NULL, refresh_token TEXT NOT NULL, access_token TEXT NOT NULL, expires INTEGER NOT NULL, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS gmail_threads(id TEXT PRIMARY KEY, message_id INTEGER REFERENCES messages(id));
+CREATE TABLE IF NOT EXISTS gmail_seen(id TEXT PRIMARY KEY, created INTEGER NOT NULL);

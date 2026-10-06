@@ -13,6 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GULF = timezone(timedelta(hours=4))
+# Owner-only database/token files on the Linux deployment host.
+os.umask(0o077)
 
 
 class Rejected(Exception):
@@ -267,6 +269,11 @@ def worker(db, provider, timestamp=None):
         return counts
     if not provider.ready:
         return dict(counts, blocked='Provider configuration incomplete; queue preserved.')
+    if hasattr(provider, 'prepare'):
+        try:
+            provider.prepare()
+        except Exception:
+            return dict(counts, blocked='Email authorization unavailable; queue preserved. Check Email setup.')
     candidates = db.execute("SELECT id FROM messages WHERE state IN ('queued','retry') AND retry_at<=? ORDER BY retry_at,id LIMIT 20", (timestamp,)).fetchall()
     for row in candidates:
         with transaction(db):
@@ -299,7 +306,10 @@ def worker(db, provider, timestamp=None):
             from outreach.provider import Retryable, Permanent
             with transaction(db):
                 message = get_message(db, row['id'])
-                if isinstance(exc, Retryable) and message['attempts'] < 5:
+                if getattr(exc, 'authorization_unavailable', False):
+                    state, due = 'retry', next_window(timestamp + 300)
+                    db.execute("UPDATE gmail_connection SET status='reconnect_required' WHERE id=1")
+                elif isinstance(exc, Retryable) and message['attempts'] < 5:
                     state = 'retry'
                     due = next_window(timestamp + min(3600, 60 * 2 ** message['attempts']))
                 elif isinstance(exc, (Permanent, Rejected)) or isinstance(exc, Retryable):
@@ -309,4 +319,8 @@ def worker(db, provider, timestamp=None):
                 db.execute('UPDATE messages SET state=?,retry_at=?,error=? WHERE id=?', (state, due, str(exc)[:300], message['id']))
                 audit(db, 'worker', 'message.' + state, message['id'])
                 counts[state] += 1
+            if getattr(exc, 'authorization_unavailable', False):
+                # The same mailbox credential applies to the entire queue.
+                # Preserve later messages rather than marking them as failures.
+                break
     return counts

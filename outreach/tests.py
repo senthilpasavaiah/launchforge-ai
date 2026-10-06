@@ -345,6 +345,178 @@ class OutreachTests(unittest.TestCase):
         self.assertEqual(errors,[])
         self.assertEqual(provider.calls,[ident])
 
+    def gmail_config(self):
+        return patch.dict(os.environ,{'EMAIL_PROVIDER':'gmail','GOOGLE_CLIENT_ID':'test-client.apps.googleusercontent.com','GOOGLE_CLIENT_SECRET':'synthetic-client-secret','GMAIL_ALLOWED_EMAIL':'forgelaunch.test@gmail.com'})
+
+    def gmail_connection(self,expired=False):
+        self.db.execute('INSERT INTO gmail_connection VALUES(1,?,?,?,?,?)',('forgelaunch.test@gmail.com','synthetic-refresh','synthetic-access',core.now()-10 if expired else core.now()+3600,'connected'))
+        self.db.execute("INSERT INTO settings VALUES('gmail_instance','synthetic-instance')")
+
+    def test_gmail_connect_owner_only_and_no_secrets_in_state(self):
+        with self.gmail_config():
+            cookie=self.login('senthil@test.example')
+            me=json.loads(self.call('/api/outreach/me',cookie=cookie)['body'])
+            response=self.call('/api/outreach/gmail/connect','POST',{},cookie=cookie,csrf=me['csrf'])
+            self.assertEqual(response['status'],200)
+            self.assertIn('SameSite=Lax',response['headers']['Set-Cookie'])
+            self.assertIn('code_challenge',json.loads(response['body'])['authorization_url'])
+            self.gmail_connection()
+            state=self.call('/api/outreach/state',cookie=cookie)['body'].decode()
+            self.assertNotIn('synthetic-refresh',state);self.assertNotIn('synthetic-access',state)
+            client=self.login('client@test.example')
+            self.assertEqual(self.call('/api/outreach/gmail/connect','POST',{},cookie=client)['status'],403)
+            self.assertEqual(self.call('/api/outreach/gmail/disconnect','POST',{},authorization='Bearer '+'s'*40)['status'],403)
+
+    def test_gmail_missing_credentials_connect_unavailable(self):
+        with patch.dict(os.environ,{'GOOGLE_CLIENT_ID':'','GOOGLE_CLIENT_SECRET':''}):
+            cookie=self.login('senthil@test.example')
+            me=json.loads(self.call('/api/outreach/me',cookie=cookie)['body'])
+            self.assertEqual(self.call('/api/outreach/gmail/connect','POST',{},cookie=cookie,csrf=me['csrf'])['status'],503)
+
+    def test_oauth_state_session_binding_and_replay(self):
+        from outreach.gmail import authorize,callback,SCOPES
+        from urllib.parse import parse_qs,urlparse
+        class Response:
+            def __enter__(self):return io.BytesIO(b'{"emailAddress":"forgelaunch.test@gmail.com"}')
+            def __exit__(self,*args):pass
+        with self.gmail_config():
+            url=authorize(self.db,self.owner,'owner-session')
+            state=parse_qs(urlparse(url).query)['state'][0]
+            tokens={'scope':' '.join(SCOPES),'access_token':'test-access','refresh_token':'test-refresh','expires_in':3600}
+            with self.assertRaises(core.Rejected):callback(self.db,self.owner,'other-session',{'state':state,'code':'test-code'})
+            with patch('outreach.gmail.token_request',return_value=tokens),patch('outreach.gmail.urlopen',return_value=Response()):
+                callback(self.db,self.owner,'owner-session',{'state':state,'code':'test-code'})
+            self.assertEqual(self.db.execute('SELECT email FROM gmail_connection').fetchone()[0],'forgelaunch.test@gmail.com')
+            with self.assertRaises(core.Rejected):callback(self.db,self.owner,'owner-session',{'state':state,'code':'test-code'})
+
+    def test_oauth_wrong_mailbox_is_not_connected(self):
+        from outreach.gmail import authorize,callback,SCOPES
+        from urllib.parse import parse_qs,urlparse
+        class Response:
+            def __enter__(self):return io.BytesIO(b'{"emailAddress":"wrong@gmail.com"}')
+            def __exit__(self,*args):pass
+        with self.gmail_config():
+            state=parse_qs(urlparse(authorize(self.db,self.owner,'session')).query)['state'][0]
+            tokens={'scope':' '.join(SCOPES),'access_token':'test-access','refresh_token':'test-refresh'}
+            with patch('outreach.gmail.token_request',return_value=tokens),patch('outreach.gmail.urlopen',return_value=Response()):
+                with self.assertRaises(core.Rejected):callback(self.db,self.owner,'session',{'state':state,'code':'test-code'})
+            self.assertEqual(self.db.execute('SELECT count(*) FROM gmail_connection').fetchone()[0],0)
+
+    def test_oauth_denial_and_insufficient_scope(self):
+        from outreach.gmail import authorize,callback,SCOPES
+        from urllib.parse import parse_qs,urlparse
+        with self.gmail_config():
+            for tokens,query in [({}, {'error':'access_denied'}),({'scope':SCOPES[0],'access_token':'test'}, {'code':'test'})]:
+                state=parse_qs(urlparse(authorize(self.db,self.owner,'session')).query)['state'][0]
+                with patch('outreach.gmail.token_request',return_value=tokens):
+                    with self.assertRaises(core.Rejected):callback(self.db,self.owner,'session',dict(query,state=state))
+            self.assertEqual(self.db.execute('SELECT count(*) FROM gmail_connection').fetchone()[0],0)
+
+    def test_oauth_callback_requires_browser_binding(self):
+        self.assertEqual(self.call('/auth/gmail/callback')['status'],403)
+
+    def test_gmail_refresh_revocation_preserves_queue(self):
+        from outreach.gmail import Gmail
+        ident=self.message();self.gmail_connection(expired=True)
+        with self.gmail_config(),patch.dict(os.environ,{'EMAIL_ENABLED':'true'}):
+            with patch('outreach.gmail.token_request',side_effect=core.Rejected('Google authorization expired or was revoked. Reconnect Gmail.',503)):
+                result=core.worker(self.db,Gmail(self.db),MONDAY)
+            self.assertIn('blocked',result)
+            self.assertEqual(core.get_message(self.db,ident)['state'],'queued')
+            self.assertEqual(self.db.execute('SELECT status FROM gmail_connection').fetchone()[0],'reconnect_required')
+
+    def test_gmail_refresh_and_send_mime(self):
+        import base64
+        from email.parser import BytesParser
+        from email.policy import default
+        from outreach.gmail import Gmail
+        ident=self.message();self.gmail_connection(expired=True)
+        gmail=Gmail(self.db)
+        with self.gmail_config(),patch('outreach.gmail.token_request',return_value={'access_token':'refreshed','expires_in':3600}):
+            gmail.prepare()
+        self.assertEqual(self.db.execute('SELECT access_token FROM gmail_connection').fetchone()[0],'refreshed')
+        with patch.object(gmail,'request',return_value={'id':'api-id','threadId':'thread-id'}) as send:
+            result=gmail.send(core.get_message(self.db,ident),dict(self.db.execute('SELECT * FROM leads WHERE id=1').fetchone()))
+        self.assertEqual(result,'gmail:api-id')
+        raw=base64.urlsafe_b64decode(send.call_args[0][1]['raw'])
+        mail=BytesParser(policy=default).parsebytes(raw)
+        self.assertIn('forgelaunch.test@gmail.com',mail['From'])
+        self.assertEqual(mail['To'],'person0@company.example')
+        self.assertEqual(mail['Message-ID'],gmail.rfc_id(ident))
+        self.assertIn('/unsubscribe/',mail.get_content())
+
+    def test_gmail_only_imports_matching_outreach_thread(self):
+        from outreach.gmail import Gmail
+        from email.message import EmailMessage
+        ident=self.message();self.gmail_connection();gmail=Gmail(self.db)
+        mail=EmailMessage();mail['From']='person0@company.example';mail['Message-ID']='<reply@example.test>';mail['Subject']='Interested';mail.set_content('Please share an outline.')
+        gmail.receive('incoming-api','unrelated-thread',mail)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM inbox').fetchone()[0],0)
+        self.db.execute('INSERT INTO gmail_threads VALUES(?,?)',('outreach-thread',ident))
+        gmail.receive('incoming-api','outreach-thread',mail);gmail.receive('incoming-api','outreach-thread',mail)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM inbox').fetchone()[0],1)
+        self.assertEqual(core.get_message(self.db,ident)['state'],'cancelled')
+
+    def test_gmail_permanent_dsn_requires_known_message_and_recipient(self):
+        from outreach.gmail import Gmail
+        from email.parser import BytesParser
+        ident=self.message();self.gmail_connection();gmail=Gmail(self.db)
+        self.db.execute("UPDATE messages SET state='sent',provider_id='gmail:sent' WHERE id=?",(ident,))
+        raw=('MIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=delivery-status; boundary="dsn"\r\n\r\n--dsn\r\nContent-Type: message/delivery-status\r\n\r\nOriginal-Message-ID: '+gmail.rfc_id(ident)+'\r\n\r\nFinal-Recipient: rfc822; person0@company.example\r\nAction: failed\r\nStatus: 5.1.1\r\n\r\n--dsn--\r\n').encode()
+        gmail.bounce('dsn-id',BytesParser().parsebytes(raw))
+        self.assertEqual(core.get_message(self.db,ident)['state'],'bounced')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM suppression').fetchone()[0],1)
+
+    def test_gmail_unknown_acceptance_reconciles_without_resend(self):
+        from outreach.gmail import Gmail
+        ident=self.message();self.gmail_connection();gmail=Gmail(self.db)
+        self.db.execute("UPDATE messages SET state='uncertain' WHERE id=?",(ident,))
+        def response(path,data=None):
+            if 'rfc822msgid' in path:return {'messages':[{'id':'sent-api','threadId':'sent-thread'}]}
+            if path.startswith('threads/'):return {'messages':[]}
+            return {'messages':[]}
+        with self.gmail_config(),patch.object(gmail,'request',side_effect=response),patch.object(gmail,'send') as send:
+            gmail.sync();send.assert_not_called()
+        self.assertEqual(core.get_message(self.db,ident)['state'],'sent')
+
+    def test_gmail_disconnect_removes_local_credentials(self):
+        from outreach.gmail import disconnect
+        self.gmail_connection()
+        with patch('outreach.gmail.urlopen',side_effect=TimeoutError()):
+            result=disconnect(self.db,self.owner)
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM gmail_connection').fetchone()[0],0)
+
+    def test_gmail_api_auth_failure_preserves_later_messages(self):
+        from outreach.gmail import AuthorizationUnavailable
+        first=self.message();second=self.message(1);self.gmail_connection()
+        provider=FakeProvider({first:AuthorizationUnavailable('Reconnect Gmail')})
+        core.worker(self.db,provider,MONDAY)
+        self.assertEqual(core.get_message(self.db,first)['state'],'retry')
+        self.assertEqual(core.get_message(self.db,second)['state'],'queued')
+        self.assertEqual(provider.calls,[first])
+
+    def test_google_callback_works_with_lax_binding_without_strict_cookie(self):
+        from urllib.parse import parse_qs,urlparse,urlencode
+        from outreach.gmail import SCOPES
+        class Response:
+            def __enter__(self):return io.BytesIO(b'{"emailAddress":"forgelaunch.test@gmail.com"}')
+            def __exit__(self,*args):pass
+        with self.gmail_config():
+            cookie=self.login('senthil@test.example')
+            me=json.loads(self.call('/api/outreach/me',cookie=cookie)['body'])
+            connected=self.call('/api/outreach/gmail/connect','POST',{},cookie=cookie,csrf=me['csrf'])
+            state=parse_qs(urlparse(json.loads(connected['body'])['authorization_url']).query)['state'][0]
+            binding=connected['headers']['Set-Cookie'].split(';')[0]
+            environ={'PATH_INFO':'/auth/gmail/callback','REQUEST_METHOD':'GET','QUERY_STRING':urlencode({'state':state,'code':'test-code'}),'HTTP_COOKIE':binding,'wsgi.input':io.BytesIO(b'')}
+            captured={}
+            def start(status,headers):captured.update(status=int(status.split()[0]),headers=dict(headers))
+            tokens={'scope':' '.join(SCOPES),'access_token':'test-access','refresh_token':'test-refresh'}
+            with patch('outreach.gmail.token_request',return_value=tokens),patch('outreach.gmail.urlopen',return_value=Response()):
+                list(application(environ,start))
+            self.assertEqual(captured['status'],302)
+            self.assertEqual(captured['headers']['Location'],'/admin/outreach')
+
 
 if __name__=='__main__':
     unittest.main()

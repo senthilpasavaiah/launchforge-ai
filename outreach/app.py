@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote
 from email.parser import BytesParser
 from email.policy import default
 from outreach import core
-from outreach.provider import Mailgun, event, inbound, unsubscribe_token
+from outreach.provider import selected, event, inbound, unsubscribe_token
 
 LOG = logging.getLogger('outreach')
 
@@ -71,6 +71,25 @@ def application(environ, start_response):
                 if environ.get('HTTP_ORIGIN') != origin or not hmac.compare_digest(environ.get('HTTP_X_CSRF_TOKEN', ''), user['csrf']):
                     raise core.Rejected('Request verification failed.', 403)
             payload = api(db, user, method, path, body(environ) if method == 'POST' else {})
+            if path == '/api/outreach/gmail/connect' and method == 'POST':
+                oauth_state = parse_qs(payload['authorization_url'].split('?',1)[1])['state'][0]
+                headers.append(('Set-Cookie','forge_oauth='+oauth_state+'; HttpOnly; SameSite=Lax; Path=/auth/gmail/callback; Max-Age=600'+('' if is_local else '; Secure')))
+        elif path == '/auth/gmail/callback' and method == 'GET':
+            from outreach.gmail import callback
+            query = {k:v[0] for k,v in parse_qs(environ.get('QUERY_STRING','')).items()}
+            cookie = SimpleCookie();cookie.load(environ.get('HTTP_COOKIE',''))
+            binding = cookie.get('forge_oauth')
+            if not binding or not hmac.compare_digest(binding.value,query.get('state','')):
+                raise core.Rejected('Google authorization does not belong to this browser.',403)
+            state_hash = hashlib.sha256(binding.value.encode()).hexdigest()
+            identity = db.execute('SELECT u.id,u.role,s.token FROM gmail_oauth_states g JOIN sessions s ON s.token=g.session JOIN users u ON u.id=s.user_id WHERE g.state=? AND g.expires>? AND s.expires>?',(state_hash,core.now(),core.now())).fetchone()
+            if not identity:
+                raise core.Rejected('Owner session expired. Sign in and reconnect Gmail.',403)
+            callback(db,dict(identity),identity['token'],query)
+            headers.append(('Set-Cookie','forge_oauth=; HttpOnly; SameSite=Lax; Path=/auth/gmail/callback; Max-Age=0'+('' if is_local else '; Secure')))
+            # The normal Strict session cookie is available on the same-origin redirect.
+            status,payload,content_type = 302,b'','text/html; charset=utf-8'
+            headers.append(('Location','/admin/outreach'))
         elif path == '/auth/login' and method == 'POST':
             if environ.get('HTTP_ORIGIN') != origin:
                 raise core.Rejected('Request origin mismatch.', 403)
@@ -177,13 +196,27 @@ def api(db, user, method, path, data):
                     'inbox':[dict(r) for r in db.execute('SELECT * FROM inbox ORDER BY created DESC LIMIT 500')],
                     'suppression':[dict(r) for r in db.execute('SELECT * FROM suppression ORDER BY created DESC LIMIT 500')],
                     'audit':[dict(r) for r in db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')], 'analytics':analytics,
-                    'provider_ready':Mailgun().ready, 'paused':db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()[0]=='1',
-                    'sender':os.environ.get('MAIL_FROM','Not configured'), 'schedule':'Saturday–Thursday, 09:00–17:00 Gulf (UTC+4); Friday paused; maximum 20/day.'}
+                    'provider_ready':selected(db).ready, 'paused':db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()[0]=='1',
+                    'provider':os.environ.get('EMAIL_PROVIDER','gmail'), 'gmail':gmail_status(db),
+                    'sender':gmail_status(db)['email'] or os.environ.get('MAIL_FROM','Not connected'), 'schedule':'Saturday–Thursday, 09:00–17:00 Gulf (UTC+4); Friday paused; maximum 20/day.'}
         raise core.Rejected('Not found.', 404)
     if path == '/api/outreach/leads':
         return {'id':core.add_lead(db,user,data)}
     if path == '/api/outreach/drafts':
         return {'id':core.add_draft(db,user,data)}
+    if path == '/api/outreach/gmail/connect':
+        from outreach.gmail import authorize
+        session = db.execute('SELECT token FROM sessions WHERE user_id=? AND csrf=? AND expires>?',(user['id'],user.get('csrf'),core.now())).fetchone()
+        if not session:
+            raise core.Rejected('A signed-in owner session is required.',403)
+        return {'authorization_url':authorize(db,user,session['token'])}
+    if path == '/api/outreach/gmail/disconnect':
+        from outreach.gmail import disconnect
+        return disconnect(db,user)
+    if path == '/api/outreach/gmail/sync':
+        core.require(user,'settings')
+        from outreach.gmail import Gmail
+        return Gmail(db).sync()
     if path == '/api/outreach/pause':
         core.require(user,'settings')
         with core.transaction(db):
@@ -218,6 +251,14 @@ def api(db, user, method, path, data):
                 core.audit(db,user['id'],'message.cancelled',ident)
             return {'ok':True}
     raise core.Rejected('Not found.',404)
+
+
+def gmail_status(db):
+    from outreach.gmail import configured
+    connection = db.execute('SELECT email,status FROM gmail_connection WHERE id=1').fetchone()
+    last = db.execute("SELECT value FROM settings WHERE key='gmail_last_sync'").fetchone()
+    return {'configured':bool(configured()),'email':connection['email'] if connection else None,
+            'status':connection['status'] if connection else 'not_connected','last_sync':int(last[0]) if last else None}
 
 
 # Constant-time-ish failed login path without creating any user account.
