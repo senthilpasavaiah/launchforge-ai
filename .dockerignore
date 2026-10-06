@@ -1,0 +1,7 @@
+.git
+private
+.env
+.env.*
+__pycache__
+*.sqlite*
+artifacts

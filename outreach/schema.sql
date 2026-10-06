@@ -1,0 +1,17 @@
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('owner','admin','client')), password TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER REFERENCES users(id), csrf TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS login_attempts(ip TEXT PRIMARY KEY, count INTEGER NOT NULL, reset INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS leads(id INTEGER PRIMARY KEY, company TEXT NOT NULL, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, country TEXT NOT NULL, website TEXT NOT NULL, observation TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '', consent TEXT NOT NULL DEFAULT '', verified INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'research', created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id), subject TEXT NOT NULL, body TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('first','reply')), state TEXT NOT NULL DEFAULT 'draft', approved_by INTEGER REFERENCES users(id), approved_hash TEXT, binding INTEGER NOT NULL DEFAULT 0, scheduled INTEGER, attempts INTEGER NOT NULL DEFAULT 0, provider_id TEXT UNIQUE, retry_at INTEGER, lease_until INTEGER, error TEXT, created INTEGER NOT NULL, sent_at INTEGER, in_reply_to TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS first_contact_once ON messages(lead_id) WHERE kind='first' AND state NOT IN ('draft','cancelled');
+CREATE TABLE IF NOT EXISTS suppression(email TEXT PRIMARY KEY, reason TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY, type TEXT NOT NULL, message_id INTEGER REFERENCES messages(id), created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, lead_id INTEGER REFERENCES leads(id), sender TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, in_reply_to TEXT, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, entity TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO settings VALUES('paused','0');
+CREATE INDEX IF NOT EXISTS queue_due ON messages(state,retry_at,scheduled);
+CREATE TABLE IF NOT EXISTS webhook_tokens(token TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS worker_attempts(id INTEGER PRIMARY KEY, message_id INTEGER REFERENCES messages(id), created INTEGER NOT NULL);
